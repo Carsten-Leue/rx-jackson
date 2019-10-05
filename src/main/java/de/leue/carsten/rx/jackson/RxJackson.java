@@ -1,11 +1,13 @@
 package de.leue.carsten.rx.jackson;
 
+import static com.fasterxml.jackson.core.JsonToken.NOT_AVAILABLE;
+import static java.lang.Boolean.FALSE;
+import static java.lang.Boolean.TRUE;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map.Entry;
 import java.util.concurrent.Callable;
 
 import com.fasterxml.jackson.core.JsonParser;
@@ -18,15 +20,6 @@ import io.reactivex.FlowableTransformer;
 import io.reactivex.functions.BiConsumer;
 
 public class RxJackson {
-
-	private static <K, V> Entry<K, V> createEntry(final K key, final V value) {
-		return new SimpleImmutableEntry<>(key, value);
-	}
-
-	private static Callable<Entry<? extends JsonParser, Flowable<Object>>> createSeed(
-			Callable<? extends JsonParser> aSeed) {
-		return () -> createEntry(aSeed.call(), null);
-	}
 
 	private static final void feedByteBuffer(final ByteBuffer buffer, final JsonParser parser) throws IOException {
 		final ByteBufferFeeder feeder = (ByteBufferFeeder) parser.getNonBlockingInputFeeder();
@@ -48,7 +41,7 @@ public class RxJackson {
 
 	private static void exhaustTokens(final List<Object> tokens, JsonParser parser) throws IOException {
 		JsonToken t;
-		while ((t = parser.nextToken()) != JsonToken.NOT_AVAILABLE) {
+		while (((t = parser.nextToken()) != NOT_AVAILABLE) && (t != null)) {
 			// append
 			tokens.add(t);
 			// handle token type
@@ -62,10 +55,10 @@ public class RxJackson {
 				tokens.add(parser.getNumberValue());
 				break;
 			case VALUE_TRUE:
-				tokens.add(Boolean.TRUE);
+				tokens.add(TRUE);
 				break;
 			case VALUE_FALSE:
-				tokens.add(Boolean.FALSE);
+				tokens.add(FALSE);
 				break;
 			default:
 				break;
@@ -76,22 +69,15 @@ public class RxJackson {
 	private static <T> FlowableTransformer<T, Object> parseJson(final Callable<? extends JsonParser> aSeed,
 			final BiConsumer<? super T, ? super JsonParser> aFeeder) {
 		// returns our operator
-		return src$ -> src$.scanWith(createSeed(aSeed), (entry, buffer) -> {
-			// parser
-			final JsonParser parser = entry.getKey();
-			try {
-				// convert the tokens into an array
-				final ArrayList<Object> tokens = new ArrayList<>();
-				exhaustTokens(tokens, parser);
-				// fill the parser
-				aFeeder.accept(buffer, parser);
-				exhaustTokens(tokens, parser);
-				// convert to a stream
-				return createEntry(parser, Flowable.fromIterable(tokens));
-			} catch (Throwable th) {
-				return createEntry(parser, Flowable.error(th));
-			}
-		}).concatMap(entry -> entry.getValue());
+		return src$ -> Flowable.using(aSeed, (parser) -> src$.concatMap(buffer -> {
+			// convert the tokens into an array
+			final ArrayList<Object> tokens = new ArrayList<>();
+			aFeeder.accept(buffer, parser);
+			exhaustTokens(tokens, parser);
+			// return the sequence
+			return Flowable.fromIterable(tokens);
+		}), parser -> parser.close());
+
 	}
 
 }

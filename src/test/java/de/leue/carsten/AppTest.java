@@ -3,13 +3,16 @@ package de.leue.carsten;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.io.InputStream;
 
 import org.junit.Test;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.async.NonBlockingInputFeeder;
+import com.github.davidmoten.rx2.Bytes;
 
+import de.leue.carsten.rx.jackson.RxJackson;
 import io.reactivex.Flowable;
 import io.reactivex.FlowableOperator;
 import io.reactivex.FlowableTransformer;
@@ -26,19 +29,20 @@ public class AppTest
 	}
 	
 	@Test
-	public void shouldCreateOperator() throws Exception {
-		
-		final Flowable<String> f$ = Flowable.just("Carsten");
-		
-		final Flowable<String> result$ = f$.compose(toMap());
-		
-		final TestSubscriber<String> subscriber = new TestSubscriber<>();
-		result$.subscribe(subscriber);
-		
+	public void shouldParseJson() throws Exception {
 
+		final InputStream is = getClass().getResourceAsStream("/test.json");
+		final Flowable<byte[]> in$ = Bytes.from(is, 5);
+		
+		final JsonFactory fct = JsonFactory.builder().build();
+		
+		// parse
+		final Flowable<Object> entries$ = in$.compose(RxJackson.parseByteArray(() -> fct.createNonBlockingByteArrayParser())).doOnNext(obj -> System.out.println(obj));
+		
+		final TestSubscriber<Object> subscriber = new TestSubscriber<>();
+		entries$.subscribe(subscriber);
 		
 		subscriber.assertComplete();
-		subscriber.assertValues("Carsten-test");
 	}
 	
 	@Test
